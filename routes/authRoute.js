@@ -1,7 +1,7 @@
 // routes/authRoute.js
 const express = require('express');
 const router = express.Router();
-const { signup, login } = require('../controllers/authController');
+const { signup, login, googleLogin } = require('../controllers/authController');
 const { signupValidation, loginValidation } = require('./../middleware/validators/authValidaton');
 const verifyToken = require('./../middleware/auth/verifyToken');
 const User = require('../models/userModel');
@@ -10,6 +10,10 @@ const Message = require('../models/messageModel');
 // Existing auth routes
 router.post('/auth/signup', signupValidation, signup);
 router.post('/auth/login', loginValidation, login);
+
+// google route key liey
+
+router.post('/auth/google',googleLogin);
 
 // Get all users except current
 router.get('/users', verifyToken, async (req, res) => {

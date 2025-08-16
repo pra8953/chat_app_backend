@@ -1,183 +1,216 @@
-// controllers/authController.js
 const userModel = require('./../models/userModel');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// Helper function to generate JWT token
+const generateToken = (user) => {
+  return jwt.sign(
+    { 
+      id: user._id, 
+      email: user.email,
+      role: user.role 
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+  );
+};
+
+// Helper function to sanitize user data
+const sanitizeUser = (user) => {
+  const userObject = user.toObject ? user.toObject() : user;
+  const { password, __v, ...userData } = userObject;
+  return userData;
+};
 
 // ================= Normal Signup =================
 const signup = async (req, res) => {
-    try {
-        const { name, email, phone, password } = req.body;
+  try {
+    const { name, email, phone, password } = req.body;
 
-        // check existing user
-        const userExitsEmail = await userModel.findOne({ email });
-        const userExitsPhone = await userModel.findOne({ phone });
-
-        if (userExitsEmail || userExitsPhone) {
-            return res.status(409).json({
-                success: false,
-                message: "User already exists! Please login"
-            });
-        }
-
-        // hash password
-        const hashedPass = await bcrypt.hash(password, 10);
-
-        // create new user
-        const newUser = new userModel({
-            name,
-            email,
-            phone,
-            password: hashedPass
-        });
-        await newUser.save();
-
-        // generate JWT token
-        const token = jwt.sign(
-            { id: newUser._id, email: newUser.email },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        return res.status(201).json({
-            success: true,
-            message: "User signup successfully",
-            token,
-            user: {
-                id: newUser._id,
-                name: newUser.name,
-                email: newUser.email,
-                phone: newUser.phone,
-                role: newUser.role
-            }
-        });
-
-    } catch (err) {
-        console.error(err);
-        return res.status(500).json({
-            success: false,
-            message: "Server error",
-            error: err.message
-        });
+    // Validate input
+    if (!name || !email || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required"
+      });
     }
+
+    // Check existing user
+    const existingUser = await userModel.findOne({ 
+      $or: [{ email }, { phone }] 
+    });
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists with this email or phone"
+      });
+    }
+
+    // Hash password
+    const hashedPass = await bcrypt.hash(password, 12);
+
+    // Create new user
+    const newUser = await userModel.create({
+      name,
+      email,
+      phone,
+      password: hashedPass,
+      role: 'user' // Default role
+    });
+
+    // Generate token
+    const token = generateToken(newUser);
+
+    return res.status(201).json({
+      success: true,
+      message: "User registered successfully",
+      token,
+      user: sanitizeUser(newUser)
+    });
+
+  } catch (err) {
+    console.error("Signup error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
 };
 
 // ================= Normal Login =================
 const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        // find user
-        const user = await userModel.findOne({ email });
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found, please signup first"
-            });
-        }
-
-        // compare password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({
-                success: false,
-                message: "Invalid credentials"
-            });
-        }
-
-        // generate token
-        const token = jwt.sign(
-            { id: user._id, email: user.email },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: "Login successful",
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
-                role: user.role
-            }
-        });
-
-    } catch (err) {
-        console.error(err);
-        return res.status(500).json({
-            success: false,
-            message: "Server error",
-            error: err.message
-        });
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required"
+      });
     }
+
+    // Find user with email
+    const user = await userModel.findOne({ email });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    // Compare password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
+
+    // Generate token
+    const token = generateToken(user);
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: sanitizeUser(user)
+    });
+
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
 };
 
 // ================= Google OAuth Login =================
 const googleLogin = async (req, res) => {
-    try {
-        const { tokenId } = req.body;
+  try {
+    const { token: googleToken } = req.body;
 
-        // verify token with Google
-        const ticket = await client.verifyIdToken({
-            idToken: tokenId,
-            audience: process.env.GOOGLE_CLIENT_ID
-        });
-
-        const payload = ticket.getPayload();
-        const { email, name } = payload;
-
-        // check if user already exists
-        let user = await userModel.findOne({ email });
-
-        if (!user) {
-            // create new user (password random assign since google login doesn’t need it)
-            user = new userModel({
-                name,
-                email,
-                password: await bcrypt.hash(Math.random().toString(36).slice(-8), 10),
-                phone: "", // optional
-                role: "user"
-            });
-            await user.save();
-        }
-
-        // generate our own JWT
-        const token = jwt.sign(
-            { id: user._id, email: user.email },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: "Google login successful",
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
-                role: user.role
-            }
-        });
-
-    } catch (err) {
-        console.error("Google login error:", err);
-        return res.status(500).json({
-            success: false,
-            message: "Google login failed",
-            error: err.message
-        });
+    if (!googleToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Google token is required"
+      });
     }
+
+    // Verify Google token
+    const ticket = await client.verifyIdToken({
+      idToken: googleToken,
+      audience: [
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.VITE_GOOGLE_CLIENT_ID // For frontend verification
+      ]
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture } = payload;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email not found in Google payload"
+      });
+    }
+
+    // Check if user exists
+    let user = await userModel.findOne({ email });
+
+    if (!user) {
+      // Create new user with Google data
+      user = await userModel.create({
+        name,
+        email,
+        
+        profilePic: picture,
+        isGoogleAuth: true,
+        password: await bcrypt.hash(Math.random().toString(36).slice(-8) + Date.now(), 12),
+        phone: "not-provided",
+        role: "user"
+      });
+    }
+
+    // Generate our JWT token
+    const token = generateToken(user);
+
+    return res.status(200).json({
+      success: true,
+      message: "Google login successful",
+      token,
+      user: sanitizeUser(user)
+    });
+
+  } catch (err) {
+    console.error("Google login error:", err);
+    
+    // More specific error messages
+    let errorMessage = "Google authentication failed";
+    if (err.message.includes("Token used too late")) {
+      errorMessage = "Google token expired";
+    } else if (err.message.includes("Wrong number of segments")) {
+      errorMessage = "Invalid Google token";
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
 };
 
 module.exports = {
-    signup,
-    login,
-    googleLogin
+  signup,
+  login,
+  googleLogin
 };
