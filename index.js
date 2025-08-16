@@ -19,7 +19,7 @@ connectDb().then(() => {
 
   // Enhanced CORS configuration
   const corsOptions = {
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://chat-app-hbyp.vercel.app'],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://chat-app-hbyp.vercel.app','https://chat-app-backend-ngk6.onrender.com'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
