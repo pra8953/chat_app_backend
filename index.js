@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const Message = require('./models/messageModel');
 const connectDb = require('./config/db');
 const verifyToken = require('./middleware/auth/verifyToken');
-
+const passport = require("passport");
 const app = express();
 const PORT = process.env.PORT || 3600;
 const onlineUsers = new Map();
@@ -19,13 +19,22 @@ connectDb().then(() => {
 
   // Enhanced CORS configuration
   const corsOptions = {
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://chat-app-hbyp.vercel.app','https://chat-app-backend-ngk6.onrender.com'],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://chat-app-hbyp.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 };
 
   app.use(cors(corsOptions));
+
+
+
+  app.get("/api/auth/google/callback",
+  passport.authenticate("google", {
+    successRedirect: "https://chat-app-hbyp.vercel.app",
+    failureRedirect: "/login"
+  })
+);
 
   // Socket.io with proper CORS and transport settings
   const io = socketio(server, {
